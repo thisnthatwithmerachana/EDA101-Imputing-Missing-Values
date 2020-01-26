@@ -1,0 +1,82 @@
+#Download the dataset
+import seaborn as sns
+import pandas as pd
+import numpy as np
+main_df=sns.load_dataset('titanic')
+main_df=pd.DataFrame(data=main_df)
+main_df.drop('alive',axis=1,inplace=True)#redundant
+target_df=main_df['survived'] #target variable
+main_df.drop('survived',axis=1,inplace=True)#all our features
+print(main_df.sample(10))
+#print(main_df.sample(10)) #head might not be representative view of the dataset so use sample instead
+#print(main_df.dtypes) # it will give u information on your datatypes.
+###########################
+#Profile Report#
+###########################
+col_names = list(main_df.columns.values) # this will give you your list of column values.
+from pandas_profiling import ProfileReport # this is what will give us our EDA in html output format.
+#profile = main_df.profile_report(title='Titanic Pandas Profiling Report')
+#profile.to_file(output_file="Titanic-Output.html")
+# select non-numeric columns
+df_category = main_df.select_dtypes(exclude=[np.number]).astype('category')#less memory intensive.
+#print(df_category.sample(5))
+#print(df_category.loc[:,df_category.isna().any()]) #print this if you want to see what columns we are trying to fill
+df_num = main_df.select_dtypes(include=[np.number])
+print(df_num.head(10))
+num_columns=list(df_num.columns.values) #main_df.select_dtypes(include=['np.number'])
+num_columns.append('Missing') # check out the difference between extend and append
+print(num_columns)
+cat_columns=list(df_category.columns.values)
+############################
+#Univariate(Simple Imputer)#
+############################
+from sklearn.impute import SimpleImputer
+imputer = SimpleImputer(add_indicator=True, copy=True, fill_value=None,missing_values=np.nan, strategy='mean', verbose=0)
+impute_df=imputer.fit_transform(df_num)#main_df[df_num.columns.values]
+impute_df=pd.DataFrame(data=impute_df,columns=num_columns)
+print(impute_df.head(10))
+print(impute_df.loc[:,impute_df.isna().any()]) 
+imputer = SimpleImputer(add_indicator=False, copy=True, fill_value='Missing',missing_values=np.nan, strategy='constant', verbose=0)
+impute_df=imputer.fit_transform(df_category)
+impute_df=pd.DataFrame(data=impute_df,columns=cat_columns)
+print(df_category.head(10))
+print(impute_df.head(10))
+############################
+#Multivariate(Iterative Imputer)#
+############################
+from sklearn.impute import IterativeImputer
+ite_imputer =IterativeImputer(add_indicator=False, estimator=None,imputation_order='ascending', initial_strategy='mean',max_iter=10, max_value=None,min_value=None,missing_values=np.nan, n_nearest_features=None,random_state=2019, sample_posterior=False,tol=0.001,verbose=0)
+#more from the documentation for this class on sklearn website
+impute_df=np.round(ite_imputer.fit_transform(df_num))
+impute_df=pd.DataFrame(data=impute_df,columns=df_num.columns)
+print(impute_df.head(10))
+#############################
+#Pipeline#
+#############################
+from sklearn.compose import ColumnTransformer,make_column_transformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+# We create the preprocessing pipelines for both numeric and categorical data.
+numeric_features = list(df_num.columns.values)
+numeric_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='mean')),('scaler', StandardScaler())])
+categorical_features = list(df_category.columns.values)
+categorical_transformer = Pipeline(steps=[('imputer', SimpleImputer(strategy='constant', fill_value='missing')),('onehot', OneHotEncoder(handle_unknown='ignore'))])
+preprocessor = ColumnTransformer(transformers=[('num', numeric_transformer, numeric_features),('cat', categorical_transformer, categorical_features)])
+# Append classifier to preprocessing pipeline.
+# Now we have a full prediction pipeline.
+clf = Pipeline(steps=[('preprocessor', preprocessor),('classifier', LogisticRegression(solver='lbfgs'))])
+X_train, X_test, y_train, y_test = train_test_split(main_df,target_df,random_state=2019,test_size=0.2)
+clf.fit(X_train,y_train)
+print("model score: %.3f" % clf.score(X_train,y_train))
+###############################
+#Missing Indicator#
+###############################
+from sklearn.impute import MissingIndicator
+from sklearn.pipeline import FeatureUnion, make_pipeline
+#from sklearn.tree import DecisionTreeClassifier
+transformer = FeatureUnion(transformer_list=[('features', preprocessor),('indicators', MissingIndicator())])
+clf = make_pipeline(transformer, LogisticRegression(solver='lbfgs')) #inorder to make predictions we need to wrap this in a pipeline with a classifier.
+clf = clf.fit(X_train, y_train)
+print("model score: %.3f" % clf.score(X_train,y_train))
